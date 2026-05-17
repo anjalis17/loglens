@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loglens
+      POSTGRES_PASSWORD: loglens
+      POSTGRES_DB: loglens
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loglens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - audio_uploads:/app/audio_uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  nextjs:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - fastapi
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+
+volumes:
+  postgres_data:
+  audio_uploads:
