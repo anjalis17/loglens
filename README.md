@@ -1,8 +1,8 @@
 # LogLens
 
-AI-driven longitudinal feedback platform. Log brief observations about people you supervise over time. A multi-agent AI layer distills them into structured summaries and generates fully-drafted recommendation letters grounded in specific remembered episodes.
+LogLens is an AI-driven feedback platform that allows users within organizations to continuously log feedback for people they manage, oversee, teach, or work with. Users can log brief text entries or voice memos captured in the moment, which over time, accumulate into a diary for each person. An multi agent AI layer continuously reads and distills entries into a structured highlights summary for each individual. At any point, a user (e.g. a supervisor or admin) can generate a fully drafted recommendation letter grounded in the complete longitudinal record of specific memories / moments that come to mind when they think of a particular individual. The best recommendation letters allude to specific episodes where an individual's traits shined bright, how people respond in unpredictable situations, and how relationships get cultivated over time across many smaller interactions. LogLens makes these moments easy to capture and allow users to instantly generate meaningful feedback / recommendations at any point in time.
 
-**V0:** Full AI feedback loop running with Claude stubs (no API key needed). Whisper voice transcription and async workers deferred to V1.
+**V0 (5/17/2025 Update):** Full AI feedback loop running with Claude stubs (no API key needed). Whisper voice transcription and async workers deferred to V1.
 
 ---
 
