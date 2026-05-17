@@ -27,7 +27,7 @@ cp .env.example .env
 docker-compose up --build
 ```
 
-That's it. Docker Compose builds and starts:
+Docker Compose builds and starts:
 - **PostgreSQL** on port 5432
 - **FastAPI** on port 8000
 - **Next.js** on port 3000
@@ -59,7 +59,7 @@ Credentials created:
 
 ---
 
-## Run database migrations manually
+<!-- ## Run database migrations manually
 
 Migrations run automatically on container start via the Dockerfile CMD. To run them manually:
 
@@ -127,4 +127,4 @@ loglens/
 - Voice upload + local Whisper transcription
 - OrgScopedSession enforcer (SQLAlchemy query-time org_id guard)
 - PostgreSQL row-level security policies
-- Audit log + admin /audit page
+- Audit log + admin /audit page -->
