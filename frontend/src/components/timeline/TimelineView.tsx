@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, BASE_URL } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -328,15 +328,55 @@ function EpisodeCard({
 }
 
 // ─── Timeline data model ────────────────────────────────────────────────────────
-// Each entry becomes its own row. Episodes are anchored to the specific dot they
-// belong to — the card extends left or right from that dot on the same row.
 
 type TimelineRow = {
   entry: EntryOut;
   episode?: { data: NotableEpisode; side: "left" | "right"; idx: number };
 };
 
-function buildTimeline(entries: EntryOut[], episodes: NotableEpisode[]): TimelineRow[] {
+const ANCHOR_STOP = new Set([
+  "about","after","also","been","being","both","come","doing","each","even","ever",
+  "from","have","here","into","just","keep","like","made","make","more","much","must",
+  "never","only","other","over","same","such","take","than","that","them","then",
+  "there","they","this","those","time","very","want","well","were","what","when","with",
+]);
+function anchorWords(s: string): string[] {
+  return s.toLowerCase().split(/\W+/).filter((w) => w.length > 3 && !ANCHOR_STOP.has(w));
+}
+
+// For each episode, find which entry's evidence text best matches the episode
+// title+description via word overlap. Falls back to LLM-assigned entry_id if set.
+function resolveEpisodeAnchorId(
+  episode: NotableEpisode,
+  traits: CoreTrait[]
+): string | null {
+  if (episode.entry_id) return episode.entry_id;
+
+  const allEvidence: { entry_id: string; text: string }[] = [];
+  for (const trait of traits) {
+    for (const ev of trait.evidence) {
+      if (typeof ev !== "string" && ev.entry_id && ev.text) {
+        allEvidence.push({ entry_id: ev.entry_id, text: ev.text });
+      }
+    }
+  }
+  if (!allEvidence.length) return null;
+
+  const epWords = new Set(anchorWords(`${episode.title} ${episode.description}`));
+  let bestId: string | null = null;
+  let bestScore = 0;
+  for (const ev of allEvidence) {
+    const score = anchorWords(ev.text).filter((w) => epWords.has(w)).length;
+    if (score > bestScore) { bestScore = score; bestId = ev.entry_id; }
+  }
+  return bestId;
+}
+
+function buildTimeline(
+  entries: EntryOut[],
+  episodes: NotableEpisode[],
+  traits: CoreTrait[]
+): TimelineRow[] {
   const sorted = [...entries].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
@@ -347,42 +387,35 @@ function buildTimeline(entries: EntryOut[], episodes: NotableEpisode[]): Timelin
 
   const n = episodes.length;
   const m = sorted.length;
+  const entryIdToIdx = new Map(sorted.map((e, i) => [e.id, i]));
 
-  // Entries are newest-first, so place episodes newest-first too so that
-  // the oldest episode (Milestone 1) anchors near the bottom.
-  const reversed = [...episodes].reverse(); // reversed[0] = newest episode
+  // reversed[0] = newest episode (chronological idx = n-1 → "Milestone N")
+  const reversed = [...episodes].reverse();
+  const anchorMap = new Map<number, { ep: NotableEpisode; originalIdx: number }>();
 
-  // Distribute episodes evenly across 0..m-1 so the newest episode (posIdx=0)
-  // always anchors to the most recent entry (index 0, top of timeline).
-  const anchorIndices = reversed.map((_, i) =>
-    Math.min(Math.round((i * (m - 1)) / Math.max(n - 1, 1)), m - 1)
-  );
-  // Deduplicate: if two episodes land on the same entry, shift later ones forward.
-  for (let i = 1; i < anchorIndices.length; i++) {
-    if (anchorIndices[i] <= anchorIndices[i - 1]) {
-      anchorIndices[i] = Math.min(anchorIndices[i - 1] + 1, m - 1);
-    }
-  }
-
-  // posIdx = position from top; originalIdx = chronological index (0 = oldest → "Milestone 1").
-  const anchorMap = new Map<number, { ep: NotableEpisode; originalIdx: number; posIdx: number }>();
-  anchorIndices.forEach((entryIdx, posIdx) => {
-    anchorMap.set(entryIdx, { ep: reversed[posIdx], originalIdx: n - 1 - posIdx, posIdx });
+  reversed.forEach((ep, posIdx) => {
+    const originalIdx = n - 1 - posIdx;
+    // Resolve anchor: LLM-assigned entry_id → word-match fallback → even distribution
+    const anchorId = resolveEpisodeAnchorId(ep, traits);
+    let slot = anchorId && entryIdToIdx.has(anchorId)
+      ? entryIdToIdx.get(anchorId)!
+      : Math.min(Math.round((posIdx * (m - 1)) / Math.max(n - 1, 1)), m - 1);
+    // Resolve slot collisions by shifting forward
+    while (anchorMap.has(slot) && slot < m - 1) slot++;
+    anchorMap.set(slot, { ep, originalIdx });
   });
 
   return sorted.map((entry, i) => {
     const anchor = anchorMap.get(i);
-    if (anchor) {
-      return {
-        entry,
-        episode: {
-          data: anchor.ep,
-          side: anchor.posIdx % 2 === 0 ? "right" : "left",
-          idx: anchor.originalIdx,
-        },
-      };
-    }
-    return { entry };
+    if (!anchor) return { entry };
+    return {
+      entry,
+      episode: {
+        data: anchor.ep,
+        side: anchor.originalIdx % 2 === 0 ? "right" : "left",
+        idx: anchor.originalIdx,
+      },
+    };
   });
 }
 
@@ -393,10 +426,12 @@ export function TimelineView({ subjectId }: { subjectId: string }) {
   const [refreshing, setRefreshing]       = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<EntryOut | null>(null);
   const [focused, setFocused]             = useState<FocusedItem>(null);
+  const refreshVersionRef                 = useRef<number | null>(null);
 
   const { data: entryPage, isLoading: entriesLoading } = useQuery({
     queryKey: ["entries", subjectId, 200],
     queryFn: () => api.get<EntryPage>(`/subjects/${subjectId}/entries?page_size=200`),
+    refetchInterval: 12000,
   });
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
@@ -405,17 +440,49 @@ export function TimelineView({ subjectId }: { subjectId: string }) {
     retry: false,
   });
 
+  // Auto-poll summary when entries have been added since the last distillation
+  const entryTotal        = entryPage?.total ?? 0;
+  const summaryEntryCount = summary?.entry_count_at_distillation ?? 0;
+
+  useEffect(() => {
+    if (entryTotal <= summaryEntryCount) return;
+    const id = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["summary", subjectId] });
+    }, 4000);
+    return () => clearInterval(id);
+  }, [entryTotal, summaryEntryCount, subjectId, queryClient]);
+
   async function handleRefresh() {
+    if (refreshing) return;
     setRefreshing(true);
+    refreshVersionRef.current = summary?.distillation_version ?? null;
     try {
       await api.post(`/subjects/${subjectId}/summary/refresh`, {});
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["summary", subjectId] });
-        setRefreshing(false);
-      }, 3000);
     } catch {
       setRefreshing(false);
+      return;
     }
+    // Poll every 2s until distillation_version increments (max 30s)
+    let attempts = 0;
+    const poll = async () => {
+      if (attempts++ >= 15) {
+        queryClient.invalidateQueries({ queryKey: ["summary", subjectId] });
+        setRefreshing(false);
+        return;
+      }
+      try {
+        const fresh = await api.get<SummaryOut>(`/subjects/${subjectId}/summary`);
+        if (fresh.distillation_version !== refreshVersionRef.current) {
+          queryClient.setQueryData(["summary", subjectId], fresh);
+          setRefreshing(false);
+        } else {
+          setTimeout(poll, 2000);
+        }
+      } catch {
+        setTimeout(poll, 2000);
+      }
+    };
+    setTimeout(poll, 2000);
   }
 
   function handleSelectEntry(entry: EntryOut) {
@@ -431,7 +498,7 @@ export function TimelineView({ subjectId }: { subjectId: string }) {
   const hasSummary = !!ss;
   const hasSidebar = traits.length > 0 || cautions.length > 0;
 
-  const rows = useMemo(() => buildTimeline(entries, episodes), [entries, episodes]);
+  const rows = useMemo(() => buildTimeline(entries, episodes, traits), [entries, episodes, traits]);
 
   // Set of entry IDs that should be highlighted for the current focus.
   // Traits: exact IDs from LLM-assigned evidence. Cautions: keyword matching fallback.

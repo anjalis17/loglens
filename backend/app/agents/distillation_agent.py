@@ -87,6 +87,11 @@ class DistillationAgent:
                     if idx in entry_id_map
                 ]
 
+        for ep in structured.get("notable_episodes", []):
+            if isinstance(ep, dict):
+                idx = ep.get("entry_index")
+                ep["entry_id"] = entry_id_map.get(idx) if idx else None
+
         plain_text = self._render_plain_text(structured)
 
         if existing is None:
@@ -160,7 +165,7 @@ class DistillationAgent:
             '  "core_traits": [\n'
             '    {"trait": "string", "evidence": [{"text": "string", "entry_index": integer}]}\n'
             '  ],\n'
-            '  "notable_episodes": [{"title": "string", "description": "string", "date_approx": "string", "qualities_demonstrated": ["string"]}],\n'
+            '  "notable_episodes": [{"title": "string", "description": "string", "date_approx": "string", "qualities_demonstrated": ["string"], "entry_index": integer}],\n'
             '  "growth_arc": "string",\n'
             '  "relationship_texture": "string",\n'
             '  "cautions": [{"text": "string", "entry_indices": [integer]}]\n'
@@ -175,6 +180,8 @@ class DistillationAgent:
             "- Each evidence item: {\"text\": \"<highlight>\", \"entry_index\": N} — N is the 1-based index\n"
             "  from [Entry N] above. Text: 8–12 words, active statement, e.g.\n"
             "  'Took full ownership of the barbecue when others stepped back.'\n"
+            "- notable_episodes: each episode MUST include \"entry_index\": N pointing to the single entry\n"
+            "  that best represents this episode. Use the same 1-based [Entry N] index.\n"
             "- notable_episodes description: 1-2 sentences, specific and concrete.\n"
             "- Each caution: {\"text\": \"<one sentence>\", \"entry_indices\": [N, ...]} — list every entry\n"
             "  that shows this behavior. Only include a caution directly observable in the entries."

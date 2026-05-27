@@ -71,6 +71,7 @@ export interface NotableEpisode {
   description: string;
   date_approx: string;
   qualities_demonstrated: string[];
+  entry_id: string | null;
 }
 
 export interface CautionItem {
