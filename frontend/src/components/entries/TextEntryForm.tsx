@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { X, CheckCircle2 } from "lucide-react";
 import type { EntryOut } from "@/types/api";
 
 interface Props {
@@ -61,57 +61,71 @@ export function TextEntryForm({ subjectId, onSuccess }: Props) {
 
   if (success) {
     return (
-      <div className="text-center py-12">
-        <p className="text-lg font-medium text-green-700">Entry saved!</p>
+      <div className="text-center py-16">
+        <div className="w-12 h-12 rounded-full bg-primary/10 mx-auto mb-4 flex items-center justify-center">
+          <CheckCircle2 className="w-6 h-6 text-primary" />
+        </div>
+        <p className="font-semibold text-foreground">Entry saved!</p>
         <p className="text-sm text-muted-foreground mt-1">Redirecting…</p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="space-y-1">
-        <Label htmlFor="entry-text">Observation</Label>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="entry-text" className="text-sm font-medium">Observation</Label>
         <Textarea
           id="entry-text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="What did you notice today? Be specific — capture the episode, not just the trait."
-          className="min-h-[200px] resize-none text-base"
+          placeholder="What did you notice? Be specific — capture the episode, not just the trait."
+          className="min-h-[220px] resize-none text-sm leading-relaxed"
           autoFocus
           required
         />
       </div>
 
-      <div className="space-y-1">
-        <Label htmlFor="tag-input">Tags</Label>
-        <div className="flex flex-wrap gap-1.5 mb-1.5">
-          {tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="gap-1 pr-1">
-              {tag}
-              <button type="button" onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}>
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="tag-input" className="text-sm font-medium">
+          Tags <span className="text-muted-foreground font-normal">(optional)</span>
+        </Label>
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {tags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="gap-1 pr-1.5 rounded-full text-xs">
+                {tag}
+                <button
+                  type="button"
+                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                  className="hover:text-destructive transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
         <Input
           id="tag-input"
           value={tagInput}
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={handleTagKeyDown}
           onBlur={addTag}
-          placeholder="Type tag, press Enter"
+          placeholder="Type a tag, press Enter"
+          className="h-10"
         />
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
 
-      <div className="flex gap-3">
-        <Button type="submit" disabled={loading || !text.trim()}>
-          {loading ? "Saving…" : "Save entry"}
-        </Button>
-      </div>
+      <Button type="submit" disabled={loading || !text.trim()} className="h-10">
+        {loading ? "Saving…" : "Save entry"}
+      </Button>
     </form>
   );
 }

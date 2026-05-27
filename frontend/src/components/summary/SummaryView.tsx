@@ -86,7 +86,7 @@ export function SummaryView({ subjectId }: Props) {
                         {trait.evidence.map((ev, j) => (
                           <li key={j} className="text-sm text-muted-foreground flex gap-2">
                             <span className="shrink-0">·</span>
-                            <span>{ev}</span>
+                            <span>{typeof ev === "string" ? ev : ev.text}</span>
                           </li>
                         ))}
                       </ul>
@@ -144,7 +144,7 @@ export function SummaryView({ subjectId }: Props) {
               <h3 className="text-base font-semibold mb-2 text-yellow-700">Cautions</h3>
               <ul className="space-y-1">
                 {s.cautions.map((c, i) => (
-                  <li key={i} className="text-sm text-yellow-700">· {c}</li>
+                  <li key={i} className="text-sm text-yellow-700">· {typeof c === "string" ? c : c.text}</li>
                 ))}
               </ul>
             </section>

@@ -41,6 +41,8 @@ export interface EntryOut {
   author_email: string;
   content_type: "text" | "voice";
   raw_text: string | null;
+  audio_url: string | null;
+  transcription_status: "pending" | "complete" | "failed" | null;
   tags: string[];
   is_deleted: boolean;
   created_at: string;
@@ -54,9 +56,14 @@ export interface EntryPage {
   page_size: number;
 }
 
+export interface EvidenceItem {
+  text: string;
+  entry_id: string | null;
+}
+
 export interface CoreTrait {
   trait: string;
-  evidence: string[];
+  evidence: EvidenceItem[];
 }
 
 export interface NotableEpisode {
@@ -66,12 +73,17 @@ export interface NotableEpisode {
   qualities_demonstrated: string[];
 }
 
+export interface CautionItem {
+  text: string;
+  entry_ids: string[];
+}
+
 export interface StructuredSummary {
   core_traits: CoreTrait[];
   notable_episodes: NotableEpisode[];
   growth_arc: string;
   relationship_texture: string;
-  cautions: string[];
+  cautions: CautionItem[];
   raw_entry_count: number;
   date_range: { earliest: string; latest: string };
 }

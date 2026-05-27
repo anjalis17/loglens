@@ -18,6 +18,8 @@ class EntryOut(BaseModel):
     author_email: str
     content_type: str
     raw_text: Optional[str]
+    audio_url: Optional[str] = None
+    transcription_status: Optional[str]
     tags: list[str]
     is_deleted: bool
     created_at: datetime

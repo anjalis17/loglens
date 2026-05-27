@@ -1,17 +1,6 @@
-"""
-DistillationAgent — stub implementation.
-
-To swap in real Claude calls, replace the body of _call_llm() with:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    message = await client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return json.loads(message.content[0].text)
-"""
 from __future__ import annotations
+import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -64,7 +53,6 @@ class DistillationAgent:
         ):
             return existing
 
-        # Fetch actual entry texts to ground the stub summary
         entries_result = await self.db.execute(
             select(Entry).where(
                 Entry.subject_id == subject_id,
@@ -73,14 +61,31 @@ class DistillationAgent:
             ).order_by(Entry.created_at.asc())
         )
         entries = entries_result.scalars().all()
-        entry_texts = [e.raw_text for e in entries if e.raw_text]
+        entries_with_text = [e for e in entries if e.raw_text]
+        # 1-based index matches [Entry N] labels sent to the LLM
+        entry_id_map = {i + 1: str(e.id) for i, e in enumerate(entries_with_text)}
 
         structured = await self._call_llm(
-            entry_texts=entry_texts,
+            entry_texts=[e.raw_text for e in entries_with_text],
             entry_count=entry_count,
             earliest=earliest,
             latest=latest,
         )
+
+        # Resolve entry_index / entry_indices → entry_ids so the frontend can do direct lookups
+        for trait in structured.get("core_traits", []):
+            for ev in trait.get("evidence", []):
+                if isinstance(ev, dict):
+                    idx = ev.get("entry_index")
+                    ev["entry_id"] = entry_id_map.get(idx) if idx else None
+
+        for caution in structured.get("cautions", []):
+            if isinstance(caution, dict):
+                caution["entry_ids"] = [
+                    entry_id_map[idx]
+                    for idx in caution.get("entry_indices", [])
+                    if idx in entry_id_map
+                ]
 
         plain_text = self._render_plain_text(structured)
 
@@ -116,30 +121,78 @@ class DistillationAgent:
         earliest: datetime | None,
         latest: datetime | None,
     ) -> dict:
-        # STUB: build a summary grounded in actual entry text.
-        # To go live: replace this with a real Claude API call (~5 lines).
-        core_traits = _extract_traits_from_entries(entry_texts)
-        notable_episodes = _extract_episodes_from_entries(entry_texts)
+        from openai import AsyncOpenAI
+        from app.config import settings
 
-        return {
-            "core_traits": core_traits,
-            "notable_episodes": notable_episodes,
-            "growth_arc": (
-                f"Based on {entry_count} observations so far, a consistent picture is emerging. "
-                "When the Claude API key is added, this will be a rich narrative drawn directly "
-                "from your logged entries."
-            ),
-            "relationship_texture": (
-                "Your logged entries capture the day-to-day texture of this relationship. "
-                "The full AI summary will synthesize patterns across all of them."
-            ),
-            "cautions": [],
+        base_metadata = {
             "raw_entry_count": entry_count,
             "date_range": {
                 "earliest": earliest.isoformat() if earliest else "",
                 "latest": latest.isoformat() if latest else "",
             },
         }
+
+        if not entry_texts:
+            return {
+                "core_traits": [{"trait": "No observations yet", "evidence": []}],
+                "notable_episodes": [],
+                "growth_arc": "No entries logged yet.",
+                "relationship_texture": "No observations recorded.",
+                "cautions": [],
+                **base_metadata,
+            }
+
+        client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
+        )
+
+        entries_block = "\n\n".join(
+            f"[Entry {i + 1}]\n{text}" for i, text in enumerate(entry_texts)
+        )
+
+        n = len(entry_texts)
+        prompt = (
+            f"Synthesize the following {entry_count} observational log entries into a structured summary.\n\n"
+            f"ENTRIES:\n{entries_block}\n\n"
+            "Return ONLY valid JSON with this exact structure:\n"
+            "{\n"
+            '  "core_traits": [\n'
+            '    {"trait": "string", "evidence": [{"text": "string", "entry_index": integer}]}\n'
+            '  ],\n'
+            '  "notable_episodes": [{"title": "string", "description": "string", "date_approx": "string", "qualities_demonstrated": ["string"]}],\n'
+            '  "growth_arc": "string",\n'
+            '  "relationship_texture": "string",\n'
+            '  "cautions": [{"text": "string", "entry_indices": [integer]}]\n'
+            "}\n\n"
+            "Rules:\n"
+            "- Ground every claim directly in the entries. Do not invent details.\n"
+            f"- EVIDENCE IS EXHAUSTIVE: for each core trait, you MUST check every one of the {n} entries in\n"
+            "  order (Entry 1 through Entry N) and add it to evidence if it demonstrates the trait at all —\n"
+            "  even partially or indirectly. Do not stop after a few examples. A trait's evidence list should\n"
+            "  typically contain most of the entries. The only reason to omit an entry is if it has zero\n"
+            "  relevance to the trait.\n"
+            "- Each evidence item: {\"text\": \"<highlight>\", \"entry_index\": N} — N is the 1-based index\n"
+            "  from [Entry N] above. Text: 8–12 words, active statement, e.g.\n"
+            "  'Took full ownership of the barbecue when others stepped back.'\n"
+            "- notable_episodes description: 1-2 sentences, specific and concrete.\n"
+            "- Each caution: {\"text\": \"<one sentence>\", \"entry_indices\": [N, ...]} — list every entry\n"
+            "  that shows this behavior. Only include a caution directly observable in the entries."
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.openrouter_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            extra_headers={"HTTP-Referer": "https://loglens.local", "X-Title": "LogLens"},
+        )
+
+        raw = response.choices[0].message.content or "{}"
+        structured = json.loads(_strip_fences(raw))
+        structured.update(base_metadata)
+        return structured
 
     def _render_plain_text(self, structured: dict) -> str:
         lines = []
@@ -159,27 +212,9 @@ class DistillationAgent:
         return "\n".join(lines)
 
 
-def _extract_traits_from_entries(entry_texts: list[str]) -> list[dict]:
-    """Pull each entry directly as evidence — no inference, no invention."""
-    if not entry_texts:
-        return [{"trait": "Observations pending", "evidence": ["No entries logged yet."]}]
-
-    return [
-        {
-            "trait": "Observed behaviors (from your logs)",
-            "evidence": entry_texts,
-        }
-    ]
-
-
-def _extract_episodes_from_entries(entry_texts: list[str]) -> list[dict]:
-    """Surface each entry as a notable episode card."""
-    episodes = []
-    for i, text in enumerate(entry_texts[:5]):  # show up to 5
-        episodes.append({
-            "title": f"Entry {i + 1}",
-            "description": text,
-            "date_approx": "",
-            "qualities_demonstrated": [],
-        })
-    return episodes
+def _strip_fences(text: str) -> str:
+    """Remove markdown code fences that some models wrap JSON in."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()

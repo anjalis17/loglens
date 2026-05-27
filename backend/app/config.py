@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 10080
     database_url: str = "postgresql+asyncpg://loglens:loglens@postgres:5432/loglens"
-    anthropic_api_key: str = "your-key-here"
+    openrouter_api_key: str = "your-key-here"
+    openrouter_model: str = "anthropic/claude-3.5-haiku"
     whisper_model: str = "base"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
